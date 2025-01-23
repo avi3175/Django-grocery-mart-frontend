@@ -1,0 +1,68 @@
+#app {
+    height: 100%;
+  }
+  html,
+  body {
+    position: relative;
+    height: 100%;
+  }
+  
+  body {
+    background: #eee;
+    font-family: Helvetica Neue, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    color: #000;
+    margin: 0;
+    padding: 0;
+  }
+  
+  .swiper {
+    width: 100%;
+    height: 100%;
+  }
+  
+  .swiper-slide {
+    text-align: center;
+    font-size: 18px;
+    background: #fff;
+  
+    /* Center slide text vertically */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  
+  .swiper-slide img {
+    display: block;
+    width: 10%;
+    height: 10%;
+    object-fit: cover;
+  }
+  
+  /* Typewriter effect */
+.typewriter {
+  display: inline-block;
+  font-size: 3rem;
+  overflow: hidden;
+  border-right: 4px solid transparent; /* creates the cursor */
+  white-space: nowrap;
+  width: 0;
+  animation: typing 4s steps(12) infinite, blink 0.75s step-end infinite;
+}
+
+/* Typewriter typing animation */
+@keyframes typing {
+  from {
+    width: 0;
+  }
+  to {
+    width: 12ch; /* Adjust the width based on the number of characters */
+  }
+}
+
+/* Blinking cursor effect */
+@keyframes blink {
+  50% {
+    border-color: transparent;
+  }
+}
