@@ -1,216 +1,165 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { useStripe, useElements, CardElement } from "@stripe/react-stripe-js";
 
 const Home = () => {
   const [products, setProducts] = useState([]);
   const [filter, setFilter] = useState("All");
   const [cart, setCart] = useState([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [sortOrder, setSortOrder] = useState(""); // Sorting state
+  const [sortOrder, setSortOrder] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [showPaymentForm, setShowPaymentForm] = useState(false); // Add state to toggle payment form
   const navigate = useNavigate();
+
+  const stripe = useStripe();
+  const elements = useElements();
 
   useEffect(() => {
     const accessToken = localStorage.getItem("access_token");
     setIsLoggedIn(!!accessToken);
 
-    axios
-      .get("https://django-grocery-mart-backend.onrender.com/api/products/?format=json")
-      .then((response) => {
-        setProducts(response.data);
-      })
-      .catch((error) => {
-        console.error("Error fetching products:", error);
-      });
+    axios.get("https://django-grocery-mart-backend.onrender.com/api/products/")
+      .then((response) => setProducts(response.data))
+      .catch((error) => console.error("Error fetching products:", error));
 
-    if (accessToken) {
-      fetchCart();
-    }
+    if (accessToken) fetchCart();
   }, []);
 
   const fetchCart = () => {
-    axios
-      .get("https://django-grocery-mart-backend.onrender.com/api/cart_and_order/cart/", {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
-        },
-      })
-      .then((response) => {
-        setCart(response.data);
-      })
-      .catch((error) => {
-        console.error("Error fetching cart:", error);
-      });
+    axios.get("https://django-grocery-mart-backend.onrender.com/api/cart_and_order/cart/", {
+      headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
+    })
+      .then((response) => setCart(response.data))
+      .catch((error) => console.error("Error fetching cart:", error));
   };
 
   const handleAddToCart = (product) => {
-    if (!isLoggedIn) {
-      alert("Please login or signup to add items to the cart.");
-      return;
-    }
+    if (!isLoggedIn) return alert("Please log in or sign up first.");
 
-    const totalPrice = parseFloat(product.price) * 1;
-
-    axios
-      .post(
-        "https://django-grocery-mart-backend.onrender.com/api/cart_and_order/cart/",
-        { product_id: product.id, quantity: 1, total_price: totalPrice },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
-          },
-        }
-      )
-      .then(() => {
-        fetchCart();
-      })
-      .catch((error) => {
-        console.error("Error adding to cart:", error);
-      });
+    axios.post(
+      "https://django-grocery-mart-backend.onrender.com/api/cart_and_order/cart/",
+      { product_id: product.id, quantity: 1, total_price: parseFloat(product.price) },
+      { headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` } }
+    ).then(fetchCart)
+     .catch((error) => console.error("Error adding to cart:", error));
   };
 
   const handleRemoveFromCart = (productId) => {
-    const existingItem = cart.find((item) => item.id === productId);
-    if (existingItem) {
-      const newQuantity = existingItem.quantity - 1;
-
-      if (newQuantity > 0) {
-        handleUpdateCart(productId, newQuantity);
-      } else {
-        axios
-          .delete(`https://django-grocery-mart-backend.onrender.com/api/cart_and_order/cart/${productId}/`, {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("access_token")}`,
-            },
-          })
-          .then(() => {
-            fetchCart();
-          })
-          .catch((error) => {
-            console.error("Error removing from cart:", error);
-          });
-      }
-    }
+    axios.delete(
+      `https://django-grocery-mart-backend.onrender.com/api/cart_and_order/cart/${productId}/`,
+      { headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` } }
+    ).then(fetchCart)
+     .catch((error) => console.error("Error removing from cart:", error));
   };
 
   const handleUpdateCart = (productId, quantity) => {
-    axios
-      .patch(
-        `https://django-grocery-mart-backend.onrender.com/api/cart_and_order/cart/${productId}/`,
-        { quantity },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
-          },
-        }
-      )
-      .then(() => {
-        fetchCart();
-      })
-      .catch((error) => {
-        console.error("Error updating cart:", error);
-      });
+    axios.patch(
+      `https://django-grocery-mart-backend.onrender.com/api/cart_and_order/cart/${productId}/`,
+      { quantity },
+      { headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` } }
+    ).then(fetchCart)
+     .catch((error) => console.error("Error updating cart:", error));
   };
 
   const handleOrderNow = async () => {
-    if (cart.length === 0) {
-      alert("Your cart is empty.");
-      return;
-    }
+    if (!cart.length) return alert("Your cart is empty.");
+    if (!localStorage.getItem("access_token")) return alert("Please log in to place an order.");
 
-    const token = localStorage.getItem("access_token");
-    if (!token) {
-      alert("Please log in or sign up to place an order.");
-      return;
-    }
+    // Show payment form
+    setShowPaymentForm(true);
+  };
 
-    const orderData = {
-      items: cart.map((item) => ({
-        product_id: item.product?.id,
-        quantity: item.quantity,
-        price: parseFloat(item.total_price).toFixed(2),
-      })),
-      total_price: cart.reduce(
-        (sum, item) => sum + parseFloat(item.total_price || 0),
-        0
-      ).toFixed(2),
-    };
+  const handlePaymentSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!stripe || !elements) return;
+
+    setLoading(true);
+    setError(null);
 
     try {
-      const response = await fetch(
-        "https://django-grocery-mart-backend.onrender.com/api/cart_and_order/order/",
+      // Create a payment intent on the backend
+      const { data } = await axios.post(
+        'https://django-grocery-mart-backend.onrender.com/api/cart_and_order/create-checkout-session/',
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(orderData),
+          totalPrice: cart.reduce((sum, item) => sum + parseFloat(item.total_price || 0), 0).toFixed(2),
+          cartItems: cart.map(item => ({
+            product_id: item.product?.id,
+            quantity: item.quantity,
+            total_price: item.total_price,
+          })),
         }
       );
 
-      if (response.ok) {
-        const data = await response.json();
-        alert("Order placed successfully!");
-        setCart([]);
-      } else {
-        const errorData = await response.json();
-        alert("Failed to place the order: " + (errorData.error || "Unknown error"));
+      // Confirm the payment with Stripe
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(data.client_secret, {
+        payment_method: {
+          card: elements.getElement(CardElement),
+        },
+      });
+
+      if (stripeError) {
+        setError(stripeError.message);
+        setLoading(false);
+        return;
       }
-    } catch (error) {
-      console.error("Error placing order:", error);
-      alert("An error occurred. Please try again.");
+
+      if (paymentIntent.status === 'succeeded') {
+        // Call your backend to update order status to paid
+        await axios.post('https://django-grocery-mart-backend.onrender.com/api/cart_and_order/order/paid/', {
+          orderId: data.order_id,
+        });
+
+        alert("Payment Successful!");
+        setCart([]);
+        setShowPaymentForm(false);
+      }
+    } catch (err) {
+      setError('Payment failed. Please try again.');
+      setLoading(false);
     }
   };
 
-  const filteredProducts =
-    filter === "All" ? products : products.filter((p) => p.category === filter);
-
-  // Apply sorting
-  const sortedProducts = [...filteredProducts].sort((a, b) => {
-    if (sortOrder === "asc") {
-      return parseFloat(a.price) - parseFloat(b.price);
-    } else if (sortOrder === "desc") {
-      return parseFloat(b.price) - parseFloat(a.price);
-    }
-    return 0;
-  });
+  const filteredProducts = filter === "All" ? products : products.filter((p) => p.category === filter);
+  const sortedProducts = [...filteredProducts].sort((a, b) =>
+    sortOrder === "asc" ? parseFloat(a.price) - parseFloat(b.price)
+    : sortOrder === "desc" ? parseFloat(b.price) - parseFloat(a.price)
+    : 0
+  );
 
   return (
     <div className="flex flex-col md:flex-row">
       <div className="w-full md:w-3/4">
+        {/* Product Display */}
         <div className="flex justify-around my-4">
           {["All", "Vegetables", "Meat", "Fish"].map((category) => (
             <button
               key={category}
-              className={`px-4 py-2 font-bold ${
-                filter === category ? "bg-red-700 text-white" : "bg-yellow-400"
-              }`}
+              className={`px-4 py-2 font-bold ${filter === category ? "bg-red-700 text-white" : "bg-yellow-400"}`}
               onClick={() => setFilter(category)}
             >
               {category}
             </button>
           ))}
 
-          {/* Dropdown menu for sorting */}
           <select
             value={sortOrder}
             onChange={(e) => setSortOrder(e.target.value)}
             className="ml-4 px-4 py-2 bg-gray-200 rounded"
           >
             <option value="">Sort by Price</option>
-            <option value="asc">Price: Low to High</option>
-            <option value="desc">Price: High to Low</option>
+            <option value="asc">Low to High</option>
+            <option value="desc">High to Low</option>
           </select>
         </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           {sortedProducts.map((product) => (
             <div key={product.id} className="border p-4 rounded shadow-md">
-              <img
-                src={product.image}
-                alt={product.name}
-                className="w-full h-32 object-cover mb-4"
-              />
+              <img src={product.image} alt={product.name} className="w-full h-32 object-cover mb-4" />
               <h3 className="text-lg font-bold">{product.name}</h3>
               <p className="text-gray-700">Price: ${product.price}</p>
               <p className="text-gray-700">Category: {product.category}</p>
@@ -232,14 +181,9 @@ const Home = () => {
         ) : (
           <>
             {cart.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between mb-4"
-              >
+              <div key={item.id} className="flex items-center justify-between mb-4">
                 <div>
-                  <p className="font-bold border-b-2 p-1 bg-yellow-400 text-black">
-                    {item.product_name}
-                  </p>
+                  <p className="font-bold border-b-2 p-1 bg-yellow-400 text-black">{item.product_name}</p>
                   <p>
                     <button
                       onClick={() => handleRemoveFromCart(item.id)}
@@ -249,9 +193,7 @@ const Home = () => {
                     </button>
                     <span className="mx-2">{item.quantity}</span>
                     <button
-                      onClick={() =>
-                        handleUpdateCart(item.id, item.quantity + 1)
-                      }
+                      onClick={() => handleUpdateCart(item.id, item.quantity + 1)}
                       className="px-2 bg-lime-500 font-extrabold text-white rounded"
                     >
                       +
@@ -270,6 +212,29 @@ const Home = () => {
           </>
         )}
       </div>
+
+      {showPaymentForm && (
+        <div className="w-full md:w-1/2 bg-white p-6 rounded shadow-md mx-auto mt-4">
+          <h2 className="text-2xl font-bold mb-4">Payment Information</h2>
+          {error && <div className="text-red-500 mb-4">{error}</div>}
+          <form onSubmit={handlePaymentSubmit}>
+            <div className="mb-4">
+              <label htmlFor="card-element" className="block text-lg mb-2">Credit or Debit Card</label>
+              <CardElement id="card-element" options={{ hidePostalCode: true }} />
+            </div>
+            <div className="mb-4 flex justify-between items-center">
+              <p className="font-bold">Total: ${cart.reduce((sum, item) => sum + parseFloat(item.total_price || 0), 0).toFixed(2)}</p>
+              <button
+                type="submit"
+                className="px-6 py-2 bg-red-700 text-white rounded"
+                disabled={!stripe || loading}
+              >
+                {loading ? 'Processing...' : 'Pay Now'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
